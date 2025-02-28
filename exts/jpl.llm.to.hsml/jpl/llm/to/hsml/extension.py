@@ -1,43 +1,46 @@
 import omni.ext
-import omni.ui as ui
+import omni.usd
+from pxr import UsdGeom
 
-
-# Functions and vars are available to other extension as usual in python: `example.python_ext.some_public_function(x)`
-def some_public_function(x: int):
-    print("[jpl.llm.to.hsml] some_public_function was called with x: ", x)
-    return x ** x
-
-
-# Any class derived from `omni.ext.IExt` in top level module (defined in `python.modules` of `extension.toml`) will be
-# instantiated when extension gets enabled and `on_startup(ext_id)` will be called. Later when extension gets disabled
-# on_shutdown() is called.
-class JplLlmToHsmlExtension(omni.ext.IExt):
-    # ext_id is current extension id. It can be used with extension manager to query additional information, like where
-    # this extension is located on filesystem.
+class MySelectionPrinter(omni.ext.IExt):
     def on_startup(self, ext_id):
-        print("[jpl.llm.to.hsml] jpl llm to hsml startup")
-
-        self._count = 0
-
-        self._window = ui.Window("My Window", width=300, height=300)
-        with self._window.frame:
-            with ui.VStack():
-                label = ui.Label("")
-
-
-                def on_click():
-                    self._count += 1
-                    label.text = f"count: {self._count}"
-
-                def on_reset():
-                    self._count = 0
-                    label.text = "empty"
-
-                on_reset()
-
-                with ui.HStack():
-                    ui.Button("Add", clicked_fn=on_click)
-                    ui.Button("Reset", clicked_fn=on_reset)
+        print("[MySelectionPrinter] Starting up!")
+        # Get the current selection context from Omniverse USD
+        self._selection = omni.usd.get_context().get_selection()
+        # Register the selection callback
+        self._selection_callback = self._selection.add_callback(self._on_selection_changed)
+        print("Selection callback added.")
 
     def on_shutdown(self):
-        print("[jpl.llm.to.hsml] jpl llm to hsml shutdown")
+        print("[MySelectionPrinter] Shutting down!")
+        # Unregister the callback to clean up properly
+        if self._selection_callback:
+            self._selection.remove_callback(self._selection_callback)
+            self._selection_callback = None
+
+    def _on_selection_changed(self, selection_paths):
+        # Get the current stage
+        stage = omni.usd.get_context().get_stage()
+        if not stage:
+            print("No stage loaded.")
+            return
+
+        # Iterate through all selected prim paths
+        for prim_path in selection_paths:
+            prim = stage.GetPrimAtPath(prim_path)
+            if prim:
+                # Use UsdGeom.Xformable to access transform operations
+                xformable = UsdGeom.Xformable(prim)
+                ops = xformable.GetOrderedXformOps()
+                translation = None
+                # Look for a translate operation in the ordered XformOps
+                for op in ops:
+                    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                        translation = op.Get()
+                        break
+
+                # If no translate op is found, assume the origin
+                if translation is None:
+                    translation = (0.0, 0.0, 0.0)
+
+                print(f"Selected Prim: {prim_path} - Coordinates: {translation}")
